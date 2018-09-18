@@ -1,0 +1,91 @@
+SEQUENCE CallElevator (Direction, Floor) 
+    CALL ActivateButton (Direction, Floor) 
+    CALL FindElevator (Direction, Floor) RETURNING Elevator 
+    CALL RequestElevator (Elevator, Floor) 
+END SEQUENCE
+
+
+SEQUENCE ActivateButton (Direction, Floor)
+    CALL FindButton (Direction, Floor) RETURNING Button
+    SET Button Active 
+END SEQUENCE
+
+
+SEQUENCE FindButton (Direction, Floor) 
+    FOR EACH button IN Buttons 
+        IF Floor = ButtonFloor AND Direction = ButtonDirection 
+        THEN RETURN Button 
+    END FOR 
+END SEQUENCE 
+
+
+SEQUENCE FindElevator (Direction, Floor) 
+    WHILE Elevator NOT Found
+        FOR EACH Elevator IN Elevators 
+            IF Status IS Idle THEN
+                RETURN Elevator
+            IF Floor = CurrentFloor 
+                IF Status Is Stopped AND Direction IS ButtonDirection
+                THEN
+                RETURN Elevator
+                IF Status IS Moving AND Direction IS ButtonDirection
+                THEN 
+                RETURN Elevator
+            IF Floor < CurrentFloor 
+                IF Status IS Moving AND Direction NOT ButtonDirection
+                THEN
+                RETURN Elevator
+            IF Floor > CurrentFloor
+                IF Status IS Moving AND Direction IS ButtonDirection
+                THEN
+                RETURN Elevator
+            END IF
+        END FOR
+    END WHILE
+END SEQUENCE 
+
+
+SEQUENCE RequestElevator (Elevator, Floor)
+    IF CurrentFloor IS Floor THEN 
+        CALL OpenDoor (Elevator)
+    IF CurrentFloor > Floor THEN
+        CALL LevelDown (Elevator, Floor)
+    IF CurrentFloor < Floor THEN
+        CALL LevelUp (Elevator, Floor)
+    END IF
+END SEQUENCE
+
+
+SEQUENCE OpenDoor (Elevator)
+    REPEAT 
+        OpenDoor 
+        SET 5 Seconds 
+    UNTIL Door NOT Obstructed 
+    CALL CloseDoor (Elevator)
+END SEQUENCE
+
+
+SEQUENCE CloseDoor (Elevator)
+    IF Door IS Closing AND NOT Obstructed 
+    THEN
+        RETURN Close
+    ELSE 
+        CALL OpenDoor (Elevator)
+    END IF
+END SEQUENCE
+
+
+SEQUENCE LevelDown (Elevator, Floor)
+    REPEAT 
+        COMPUTE CurrentFloor = Floor - 1 
+    UNTIL CurrentFloor IS Floor
+    CALL RequestElevator (Elevator, Floor)
+END SEQUENCE
+
+
+SEQUENCE LevelUp (Elevator, Floor)
+    REPEAT 
+        COMPUTE CurrentFloor = Floor + 1 
+    UNTIL CurrentFloor IS Floor
+    CALL RequestElevator (Elevator, Floor)
+END SEQUENCE 
