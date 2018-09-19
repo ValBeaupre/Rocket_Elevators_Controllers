@@ -22,44 +22,91 @@ END SEQUENCE
 SEQUENCE FindElevator (Direction, Floor) 
     WHILE Elevator NOT Found
         FOR EACH Elevator IN Elevators 
-            IF Status IS Idle THEN
-                RETURN Elevator
-            IF Floor = CurrentFloor 
-                IF Status Is Stopped AND Direction IS ButtonDirection
-                THEN
-                RETURN Elevator
-                IF Status IS Moving AND Direction IS ButtonDirection
-                THEN 
-                RETURN Elevator
-            IF Floor < CurrentFloor 
-                IF Status IS Moving AND Direction NOT ButtonDirection
-                THEN
-                RETURN Elevator
-            IF Floor > CurrentFloor
-                IF Status IS Moving AND Direction IS ButtonDirection
-                THEN
-                RETURN Elevator
+            IF Floor = CurrentFloor THEN
+                IF Status Is Stopped AND ElevatorDirection IS Direction THEN
+                    RETURN Elevator
+                ELSE IF Status IS Idle THEN
+                    RETURN Elevator                
+            ELSE IF Floor > CurrentFloor 
+                IF Status IS Moving AND ElevatorDirection IS GoingUp AND ElevatorDirection IS Direction THEN
+                    RETURN Elevator
+                ELSE IF Status IS Idle THEN
+                    RETURN Elevator
+                ELSE IF Status IS Stopped AND ElevatorDirection IS GoingUp AND ElevatorDirection IS Direction THEN
+                    RETURN Elevator
+                ELSE IF CALL IsShortestFloorList RETURNING TRUE AND CALL IsNearestElevator RETURNING TRUE THEN
+                    RETURN Elevator
+                ELSE IF CALL IsShortestFloorList RETURNING TRUE
+                    RETURN Elevator
+            ELSE IF Floor < CurrentFloor
+                IF Status IS Moving AND ElevatorDirection IS GoingDown AND ElevatorDirection IS Direction THEN
+                    RETURN Elevator
+                ELSE IF Status IS Idle THEN
+                    RETURN Elevator
+                ELSE IF Status IS Stopped AND ElevatorDirection IS GoingDown AND ElevatorDirection IS Direction THEN
+                    RETURN Elevator
+                ELSE IF CALL IsShortestFloorList RETURNING TRUE AND CALL IsNearestElevator RETURNING TRUE THEN
+                    RETURN Elevator
             END IF
         END FOR
     END WHILE
 END SEQUENCE 
 
 
-SEQUENCE RequestElevator (Elevator, Floor)
-    IF CurrentFloor IS Floor THEN 
+SEQUENCE IsNearestElevator (CurrentFloor, Floor)
+    COMPUTE ReferenceGap = |CurrentFloor - Floor|
+    FOR EACH Elevator IN Elevators
+        COMPUTE Gap = |ElevatorCurrentFloor - Floor|
+        IF ReferenceGap > Gap THEN
+            RETURN False 
+    END FOR 
+    RETURN True
+END SEQUENCE
+
+
+SEQUENCE IsShortestFloorList (FloorList)
+    FOR EACH FloorList IN FloorLists
+        IF FloorListLength1 > FloorListLength2 THEN
+            RETURN FloorListLength2 
+        Else RETURN FloorListLength1
+        END IF
+    END FOR 
+END SEQUENCE
+
+
+SEQUENCE OperateElevator (Elevator)
+    READ RequestedFloor FROM FloorList
+    IF CurrentFloor IS RequestedFloor THEN 
         CALL OpenDoor (Elevator)
-    IF CurrentFloor > Floor THEN
-        CALL LevelDown (Elevator, Floor)
-    IF CurrentFloor < Floor THEN
-        CALL LevelUp (Elevator, Floor)
+    IF CurrentFloor > RequestedFloor THEN
+        CALL MoveDown (Elevator, RequestedFloor)
+    IF CurrentFloor < RequestedFloor THEN
+        CALL MoveUp (Elevator, RequestedFloor)
     END IF
+END SEQUENCE 
+
+
+SEQUENCE RequestElevator (Elevator, RequestedFloor)
+    ADD RequestedFloor TO FloorList 
+    CALL SortFloorList (FloorList) RETURNING SortedFloorList
+    SET FloorList TO SortedFloorList
+END SEQUENCE
+
+
+SEQUENCE SortFloorList (FloorList)
+TRI = CurrentFloor
+END SEQUENCE
+
+
+SEQUENCE RequestFloor ()
+
 END SEQUENCE
 
 
 SEQUENCE OpenDoor (Elevator)
     REPEAT 
         OpenDoor 
-        SET 5 Seconds 
+        INIT Timer TO 5 Seconds 
     UNTIL Door NOT Obstructed 
     CALL CloseDoor (Elevator)
 END SEQUENCE
@@ -68,14 +115,14 @@ END SEQUENCE
 SEQUENCE CloseDoor (Elevator)
     IF Door IS Closing AND NOT Obstructed 
     THEN
-        RETURN Close
+        CALL OperateElevator (Elevator, RequestedFloor)
     ELSE 
         CALL OpenDoor (Elevator)
     END IF
 END SEQUENCE
 
 
-SEQUENCE LevelDown (Elevator, Floor)
+SEQUENCE MoveDown (Elevator, RequestedFloor)
     REPEAT 
         COMPUTE CurrentFloor = Floor - 1 
     UNTIL CurrentFloor IS Floor
@@ -83,9 +130,43 @@ SEQUENCE LevelDown (Elevator, Floor)
 END SEQUENCE
 
 
-SEQUENCE LevelUp (Elevator, Floor)
+SEQUENCE MoveUp (Elevator, RequestedFloor)
     REPEAT 
         COMPUTE CurrentFloor = Floor + 1 
     UNTIL CurrentFloor IS Floor
     CALL RequestElevator (Elevator, Floor)
 END SEQUENCE 
+
+
+
+procedure bubbleSort( A : list of sortable items )
+    n = length(A)
+    repeat
+        newn = 0
+        for i = 1 to n-1 inclusive do
+            if A[i-1] > A[i] then
+                swap(A[i-1], A[i])
+                newn = i
+            end if
+        end for
+        n = newn
+    until n = 0
+end procedure
+
+
+De Nicolas : 
+
+procedure bubbleSort( A : list of sortable items )
+   n = length(A)
+   repeat
+       swapped = false
+       for i = 1 to n-1 inclusive do
+           /* if this pair is out of order */
+           if A[i-1] > A[i] then
+               /* swap them and remember something changed */
+               swap( A[i-1], A[i] )
+               swapped = true
+           end if
+       end for
+   until not swapped
+end procedure
