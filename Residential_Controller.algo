@@ -1,172 +1,315 @@
-SEQUENCE CallElevator (Direction, Floor) 
-    CALL ActivateButton (Direction, Floor) 
-    CALL FindElevator (Direction, Floor) RETURNING Elevator 
-    CALL RequestElevator (Elevator, Floor) 
+
+SET NbFloors TO 10
+SET NbShaft TO 1
+SET NbElev TO 2
+SET DefaultFloor TO 3
+SET ELevWorkLoadLimit TO 1800 lb
+SET ElevMaxLoadLimit TO 2200 lb
+
+SET DelayDoorOpening TO 2 Seconds
+SET TimeOutDoorOpen TO 5 Seconds
+SET DelayDoorClosing TO 3 Seconds
+
+
+
+WHILE Contoller IS On
+	READ EACH Button 
+	IF Button IS Pressed THEN
+		CALL ButtonPressed
+    CALL CheckLoad
+	CALL CheckElevatorStatus
+	CALL VerifyDestinationList 
+	CALL CheckMovingElevator 
+END WHILE 
+
+
+
+SEQUENCE ButtonPressed
+	CALL ActivateButton (Direction, RequestedFloor) RETURNING Button
+	IF Button Action IS CallElevator THEN 
+		CALL CallElevator (Button Direction, Button FLoor, GoingIn)	
+    ELSE IF Button Action IS AddDestinationElev THEN
+		IF CALL CheckIfDestinExist (Button Floor, Button Parent) RETURNING False THEN 
+			CALL AddDestinationElev (Button Floor, Button Parent, GoingOut)			
+	ELSE IF Button Action Is OpenDoor THEN
+		IF Button Parent Status IS Stopped OR Idle THEN
+			CALL OpenDoor (Button Parent)
+	ELSE IF Button Action IS CloseDoor THEN 
+		CALL CloseDoor (Button Parent) 
+    END IF
 END SEQUENCE
 
 
-SEQUENCE ActivateButton (Direction, Floor)
-    CALL FindButton (Direction, Floor) RETURNING Button
+SEQUENCE ActivateButton (Direction, RequestedFloor)
+    CALL FindDirectionButton (Direction, RequestedFloor) RETURNING Button
     SET Button Active 
 END SEQUENCE
 
 
-SEQUENCE FindButton (Direction, Floor) 
-    FOR EACH button IN Buttons 
-        IF Floor = ButtonFloor AND Direction = ButtonDirection 
-        THEN RETURN Button 
+SEQUENCE FindDirectionButton (Direction, RequestedFloor) 
+    FOR EACH Button IN DirectionButtons 
+        IF RequestedFloor = FloorButton AND Direction = DirectionButton THEN
+			RETURN Button 
     END FOR 
 END SEQUENCE 
 
 
-SEQUENCE FindElevator (Direction, Floor) 
-    WHILE Elevator NOT Found
-        FOR EACH Elevator IN Elevators 
-            IF Floor = CurrentFloor THEN
-                IF Status Is Stopped AND ElevatorDirection IS Direction THEN
-                    RETURN Elevator
-                ELSE IF Status IS Idle THEN
-                    RETURN Elevator                
-            ELSE IF Floor > CurrentFloor 
-                IF Status IS Moving AND ElevatorDirection IS GoingUp AND ElevatorDirection IS Direction THEN
-                    RETURN Elevator
-                ELSE IF Status IS Idle THEN
-                    RETURN Elevator
-                ELSE IF Status IS Stopped AND ElevatorDirection IS GoingUp AND ElevatorDirection IS Direction THEN
-                    RETURN Elevator
-                ELSE IF CALL IsShortestFloorList RETURNING TRUE AND CALL IsNearestElevator RETURNING TRUE THEN
-                    RETURN Elevator
-                ELSE IF CALL IsShortestFloorList RETURNING TRUE
-                    RETURN Elevator
-            ELSE IF Floor < CurrentFloor
-                IF Status IS Moving AND ElevatorDirection IS GoingDown AND ElevatorDirection IS Direction THEN
-                    RETURN Elevator
-                ELSE IF Status IS Idle THEN
-                    RETURN Elevator
-                ELSE IF Status IS Stopped AND ElevatorDirection IS GoingDown AND ElevatorDirection IS Direction THEN
-                    RETURN Elevator
-                ELSE IF CALL IsShortestFloorList RETURNING TRUE AND CALL IsNearestElevator RETURNING TRUE THEN
-                    RETURN Elevator
-            END IF
-        END FOR
-    END WHILE
-END SEQUENCE 
+SEQUENCE CallElevator (Direction, RequestedFloor, IsGoingInOrOut) 
+    CALL FindElevator (Direction, RequestedFloor, -1) RETURNING Elevator 
+	IF CALL CheckIfDestinExist (RequestedFloor, Elevator) RETURNING False THEN 
+		CALL AddDestinationElev (Elevator, RequestedFloor, IsGoingInOrOut) 
+END SEQUENCE
 
 
-SEQUENCE IsNearestElevator (CurrentFloor, Floor)
-    COMPUTE ReferenceGap = |CurrentFloor - Floor|
+SEQUENCE CheckIfDestinExist (Floor, Elevator)
+	FOR EACH Destination IN Elevator DestinationList 
+		IF Destination = Floor THEN 
+			RETURN True
+	END FOR
+	RETURN False
+END SEQUENCE
+
+
+SEQUENCE FindElevator (RequestedDirection, RequestedFloor, OldElevator)
     FOR EACH Elevator IN Elevators
-        COMPUTE Gap = |ElevatorCurrentFloor - Floor|
-        IF ReferenceGap > Gap THEN
-            RETURN False 
-    END FOR 
-    RETURN True
-END SEQUENCE
-
-
-SEQUENCE IsShortestFloorList (FloorList)
-    FOR EACH FloorList IN FloorLists
-        IF FloorListLength1 > FloorListLength2 THEN
-            RETURN FloorListLength2 
-        Else RETURN FloorListLength1
+		IF Elevator <> OldElevator THEN
+			COMPUTE CurrentGap as ABSOLUTE Of CurrentFloor - RequestedFloor
+			COMPUTE ListLength as Length of DestinationList        
+			IF RequestedFloor = CurrentFloor THEN
+				IF (Status Is Stopped AND Direction = RequestedDirection) OR (Status IS Idle) THEN
+					RETURN Elevator  
+			ELSE IF (RequestedFloor > CurrentFloor AND Direction IS Up AND RequestedDirection IS Up) OR (RequestedFloor < CurrentFloor AND Direction IS Down AND RequestedDirection IS Down)
+				IF Status IS Moving OR Stopped THEN
+					Return Elevator
+			ELSE IF Status IS Idle THEN
+				Return Elevator
+			END IF
         END IF
-    END FOR 
+	END FOR
+	CALL NearestElevator (RequestedDirection) RETURNING ElevWithShortestGap 
+	IF ElevWithShortestGap NOT Empty AND OldElevator IS -1 THEN 
+		RETURN ElevWithShortestGap
+	ELSE 
+		CALL ShortestFloorList RETURNING ElevWithShortestList
+		RETURN ElevWithShortestList
+	END IF
 END SEQUENCE
 
 
-SEQUENCE OperateElevator (Elevator)
-    READ RequestedFloor FROM FloorList
-    IF CurrentFloor IS RequestedFloor THEN 
-        CALL OpenDoor (Elevator)
-    IF CurrentFloor > RequestedFloor THEN
-        CALL MoveDown (Elevator, RequestedFloor)
-    IF CurrentFloor < RequestedFloor THEN
-        CALL MoveUp (Elevator, RequestedFloor)
+SEQUENCE ShortestFloorList 
+	SET Length TO 99999
+    FOR EACH Elevator IN Elevators
+        IF Length > COMPUTE Length Of DestinationList THEN 
+			SET Length TO COMPUTE Length Of DestinationList
+			SET ElevWithShortestList TO Elevator
+		END IF			
+    END FOR 
+    RETURN ElevWithShortestList
+END SEQUENCE
+
+
+SEQUENCE NearestElevator (RequestedFloor, Direction)
+	SET Gap TO 99999
+    FOR EACH Elevator IN Elevators
+        IF Gap > COMPUTE ABSOLUTE Of COMPUTE CurrentFloor - RequestedFLoor AND RequestedDirection IS Direction THEN 
+			IF (RequestedFloor > CurrentFloor AND Direction IS Up AND RequestedDirection IS Up) OR (RequestedFloor < CurrentFloor AND Direction IS Down AND RequestedDirection IS Down)
+				SET Gap TO COMPUTE ABSOLUTE Of COMPUTE CurrentFloor - RequestedFLoor
+				SET ElevWithShortestGap TO Elevator 
+			END IF
+		END IF
+    END FOR 
+    RETURN ElevWithShortestGap
+END SEQUENCE
+
+
+SEQUENCE AddDestinationElev (Floor, Elevator, IsGoingInOrOut)
+    IF Elevator Status IS Idle THEN
+        ADD Floor IN DestinationList
+    ELSE
+        FOR EACH Destination IN Elevator DestinationList
+            IF Destination NOT EMPTY THEN
+                If Elevator Direction IS Up THEN
+                    IF Floor < Destination AND Floor > CurrentFloor THEN
+                        COMPUTE Position IN DestinationList
+                        ADD Floor IN DestinationList
+                        ADD IsGoingInOrOut AT Position IN DestinationList 
+                        RETURN
+                    ELSE
+                        IF Floor > Destination AND Destination < CurrentFloor THEN
+                            COMPUTE Position IN DestinationList
+                            ADD Floor AT Position IN DestinationList
+							ADD IsGoingInOrOut AT Position IN DestinationList 
+                            RETURN
+                    END IF
+                ELSE IF Elevator Direction IS Down
+                    IF Floor > Destination AND Floor < CurrentFloor THEN
+                        COMPUTE Position IN DestinationList
+                        ADD Floor AT Position IN DestinationList
+                        ADD IsGoingInOrOut AT Position IN DestinationList 
+                        RETURN
+                    ELSE
+                        IF Floor < Destination AND Destination > CurrentFloor THEN
+                            COMPUTE Position IN DestinationList
+                            ADD Floor AT Position IN DestinationList
+							ADD IsGoingInOrOut AT Position IN DestinationList 
+                            RETURN
+                        END IF               
+                    END IF
+                END IF
+            ELSE
+                ADD Floor TO DestinationList
+		        ADD IsGoingInOrOut AT Position IN DestinationList 
+                RETURN            
+        END FOR
     END IF
 END SEQUENCE 
 
 
-SEQUENCE RequestElevator (Elevator, RequestedFloor)
-    ADD RequestedFloor TO FloorList 
-    CALL SortFloorList (FloorList) RETURNING SortedFloorList
-    SET FloorList TO SortedFloorList
+SEQUENCE CheckLoad
+    FOR EACH Elevator IN Elevator
+        READ CurrentLoad 
+        If CurrentLoad > ELevWorkLoadLimit THEN
+            SET LoadError TO 1 //Continue to move without taking new people
+			SET Alarm TO Inactive
+        ELSE IF CurrentLoad > ElevMaxLoadLimit THEN
+            SET LoadError TO 2 //Halted until load is removed
+			SET Alarm TO Active
+        ELSE 
+            SET LoadError TO 0 //Move Normally
+			SET Alarm TO Inactive
+        END IF
+    END FOR
 END SEQUENCE
 
 
-SEQUENCE SortFloorList (FloorList)
-TRI = CurrentFloor
+SEQUENCE CheckElevatorStatus 
+	FOR EACH Elevator IN Elevators
+		IF DoorOpenTimer IS 0 Seconds THEN 
+			CALL ForceCloseDoor (Elevator)
+		END IF 
+		IF IdleTimer IS 0 Seconds THEN
+			CALL AddDestinationElev (DefaultFloor, Elevator, GoingOut)
+		END IF
+	END FOR
 END SEQUENCE
 
 
-SEQUENCE RequestFloor ()
-
+SEQUENCE VerifyDestinationList 
+	FOR EACH Elevator In Elevators
+		IF First Destination IN DestinationList NOT Empty
+			IF LoadError <> 2 THEN
+				IF LoadError = 1 THEN 
+					IF DestinationList IsGoingInOrOut IS GoingOut THEN
+						CALL StartMove (Elevator)
+					ELSE
+						SET DestinationTempor TO First Destination FROM DestinationList
+						SET IsGoingInOrOutTempor TO First IsGoingInOrOut FROM DestinationList
+						DELETE First Destination FROM DestinationList
+						DELETE First IsGoingInOrOut FROM DestinationList
+						CALL FindElevator (Elevator Direction, DestinationTempor, Elevator) RETURNING NewElevator
+						CALL AddDestinationElev (DestinationTempor, NewElevator, IsGoingInOrOutTempor)
+					END IF
+				ELSE 
+					CALL StartMove (Elevator)
+				END IF
+			ELSE 
+				CALL OpenDoor (Elevator)
+				SET Alarm TO Active
+			END IF
+		END IF 
+	END FOR 
 END SEQUENCE
+
+
+SEQUENCE StartMove (Elevator)
+	IF CurrentFloor < First Destination IN Elevator DestinationList THEN 
+		SET Direction TO UP
+	ELSE 
+		SET Direction TO Down
+	END IF
+	SET Status TO Moving
+	Start Move TO First Destination IN Elevator DestinationList 	
+END SEQUENCE
+
+
+SEQUENCE CheckMovingElevator 
+	FOR EACH Elevator IN Elevators
+		IF Status IS Moving THEN
+			READ Floor Level
+			IF Elevator CurrentFloor <> Floor Level THEN
+				SET CurrentFloor TO Floor Level
+				DISPLAY Elevator CurrentFloor ON Internal AND External Elevator Display
+			END IF
+			IF Elevator CurrentFloor = First Destination IN DestinationList THEN
+				CALL StopElevator (Elevator)
+				CALL ClearButtons (Elevator)
+			END IF
+		IF Status IS Stopped THEN 
+			CALL OpenDoor (Elevator)
+		END IF
+	END FOR
+END SEQUENCE 
+
+
+SEQUENCE StopElevator (Elevator)
+	Stop Moving Elevator
+	INIT Timer TO 2 Seconds
+	INIT DoorOpenTimer TO 30 Seconds
+	Status IS Stopped
+END SEQUENCE
+
+
+SEQUENCE ClearButtons (Elevator)
+	CALL FindDirectionButton (Elevator Direction, ELevator CurrentFloor) RETURNING Button
+	SET Button Inactive
+	CALL FindFloorButton (Elevator, Elevator CurrentFloor) RETURNING Button
+	SET Button Inactive	
+END SEQUENCE
+
+
+SEQUENCE FindFloorButton (Elevator, CurrentFloor) 
+    FOR EACH Button IN Elevator 
+        IF CurrentFloor = FloorButton THEN
+			RETURN Button 
+    END FOR 
+END SEQUENCE 
 
 
 SEQUENCE OpenDoor (Elevator)
-    REPEAT 
-        OpenDoor 
-        INIT Timer TO 5 Seconds 
-    UNTIL Door NOT Obstructed 
-    CALL CloseDoor (Elevator)
+	WAIT UNTIL Elevator IS Stopped OR Idle 
+	Open Door
+    INIT Timer TO 5 Seconds 
+	WHILE Timer > 0 Second OR Door IS Obstructed OR LoadError IS 2
+		KEEP Door Opened
+	END WHILE 
+	CALL CloseDoor (Elevator)
 END SEQUENCE
 
 
 SEQUENCE CloseDoor (Elevator)
-    IF Door IS Closing AND NOT Obstructed 
-    THEN
-        CALL OperateElevator (Elevator, RequestedFloor)
-    ELSE 
-        CALL OpenDoor (Elevator)
-    END IF
+	Close Door
+	WHILE Door IS Closing 
+		IF Obstructed THEN
+			Call OpenDoor
+	END WHILE
+	IF Door IS Closed THEN
+		SET Elevator Status TO Idle 
+		INIT IdleTimer TO 30 Seconds
 END SEQUENCE
 
 
-SEQUENCE MoveDown (Elevator, RequestedFloor)
-    REPEAT 
-        COMPUTE CurrentFloor = Floor - 1 
-    UNTIL CurrentFloor IS Floor
-    CALL RequestElevator (Elevator, Floor)
+SEQUENCE ForceCloseDoor (Elevator)
+	SET Alarm TO Active 
+	Close Slowly
+	IF Door IS Closed THEN
+		SET Alarm TO Inactive
+		SET Elevator Status TO Idle
+		INIT IdleTimer TO 30 Seconds
+	END IF
 END SEQUENCE
 
 
-SEQUENCE MoveUp (Elevator, RequestedFloor)
-    REPEAT 
-        COMPUTE CurrentFloor = Floor + 1 
-    UNTIL CurrentFloor IS Floor
-    CALL RequestElevator (Elevator, Floor)
-END SEQUENCE 
-
-
-
-procedure bubbleSort( A : list of sortable items )
-    n = length(A)
-    repeat
-        newn = 0
-        for i = 1 to n-1 inclusive do
-            if A[i-1] > A[i] then
-                swap(A[i-1], A[i])
-                newn = i
-            end if
-        end for
-        n = newn
-    until n = 0
-end procedure
-
-
-De Nicolas : 
-
-procedure bubbleSort( A : list of sortable items )
-   n = length(A)
-   repeat
-       swapped = false
-       for i = 1 to n-1 inclusive do
-           /* if this pair is out of order */
-           if A[i-1] > A[i] then
-               /* swap them and remember something changed */
-               swap( A[i-1], A[i] )
-               swapped = true
-           end if
-       end for
-   until not swapped
-end procedure
+********************
+'//Checker tous les '=' et les 'IS' et les 'TO' ....
+********************
+'//ForceCLoseDoor 
