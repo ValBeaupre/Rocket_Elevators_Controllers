@@ -1,3 +1,453 @@
-PROGRAMM CommercialController:
 
-END.
+SET NbFloors TO 66
+SET NbColumn IN Battery TO 4
+SET NbElev IN Column TO 3
+SET MaximumWaitingTime TO 60 Seconds
+SET Column(1) Range TO [1 TO 7]
+SET Column(2) Range TO [7 TO 26]
+SET Column(3) Range TO [7 AND 26 TO 46]
+SET Column(4) Range TO [7 AND 46 TO 66]
+
+SET ELevWorkLoadLimit TO 2500 lb
+SET ElevMaxLoadLimit TO 3000 lb
+
+SET DelayDoorOpening TO 5 Seconds
+SET TimeOutDoorOpen TO 30 Seconds
+
+
+
+WHILE Controler IS On
+    FOR EACH Column IN Columns
+        FOR EACH Button IN Column Buttons
+            IF Button is Pressed THEN
+                CALL ButtonPressed (Button)
+            END IF
+        END FOR
+        FOR EACH Elevator IN Column Elevators
+            FOR EACH Button IN Elevator Buttons
+                IF Button is Pressed THEN
+                    CALL ButtonPressed (Button)
+				END IF
+            END FOR
+        END FOR
+    END FOR
+  	CALL VerifySchedule
+    CALL CheckLoad
+	CALL CheckElevatorStatus
+	CALL CHeckRequestTimeDelay
+	CALL VerifyDestinationList 
+	CALL CheckMovingElevator
+  END WHILE
+
+
+
+SEQUENCE VerifySchedule 
+	IF (Current Day IS A Week Day) AND (Current Time IS Between 10:55 AND 12:30) OR (Current Time IS Between 14:55 AND 19:00) THEN 
+		'//People getting OUT of the building 
+		SET Column[1] DefaultFloorList[1] TO 7
+        SET Column[1] DefaultFloorList[2] TO 7
+        SET Column[1] DefaultFloorList[3] TO 7
+		
+        SET Column[2] DefaultFloorList[1] TO 26
+        SET Column[2] DefaultFloorList[2] TO 7
+        SET Column[2] DefaultFloorList[3] TO 26
+		
+        SET Column[3] DefaultFloorList[1] TO 46
+        SET Column[3] DefaultFloorList[2] TO 7
+        SET Column[3] DefaultFloorList[3] TO 46
+		
+        SET Column[4] DefaultFloorList[1] TO 66
+        SET Column[4] DefaultFloorList[2] TO 7
+        SET Column[4] DefaultFloorList[3] TO 66
+	ELSE 
+		'//People getting IN the building
+		SET Column[1] DefaultFloorList[1] TO 1
+        SET Column[1] DefaultFloorList[2] TO 1
+        SET Column[1] DefaultFloorList[3] TO 7
+		
+        SET Column[2] DefaultFloorList[1] TO 7
+        SET Column[2] DefaultFloorList[2] TO 26
+        SET Column[2] DefaultFloorList[3] TO 7
+		
+        SET Column[3] DefaultFloorList[1] TO 7
+        SET Column[3] DefaultFloorList[2] TO 46
+        SET Column[3] DefaultFloorList[3] TO 7
+		
+        SET Column[4] DefaultFloorList[1] TO 7
+        SET Column[4] DefaultFloorList[2] TO 66
+        SET Column[4] DefaultFloorList[3] TO 7
+	END IF
+END SEQUENCE
+
+
+SEQUENCE ButtonPressed (Button)
+	IF Button Action IS CallElevator THEN 
+		SET Button Active
+		CALL CallElevator (Button Column, Button Direction, Button FLoor, GoingIn)	
+    ELSE IF Button Action IS AddDestinationElev THEN
+		SET Button Active
+		IF CALL CheckIfDestinExists (Button Floor, Button Elevator) RETURNING FALSE THEN 
+			CALL AddDestinationElev (Button Floor, Button Elevator, GoingOut, EMPTY)			
+	ELSE IF Button Action Is OpenDoor THEN
+		IF Button Elevator Status IS Stopped OR Idle THEN
+			CALL OpenDoor (Button Elevator)
+	ELSE IF Button Action IS CloseDoor THEN 
+		CALL CloseDoor (Button Elevator) 
+    END IF
+END SEQUENCE
+
+
+SEQUENCE CallElevator (CurrentColumn, Direction, RequestedFloor, IsGoingInOrOut) 
+    CALL FindElevator (CurrentColumn, Direction, RequestedFloor, -1) RETURNING Elevator 
+	IF CALL CheckIfDestinExists (RequestedFloor, Elevator) RETURNING FALSE THEN 
+		CALL AddDestinationElev (Elevator, RequestedFloor, IsGoingInOrOut, Direction) 
+END SEQUENCE
+
+
+SEQUENCE CheckIfDestinExists (Floor, Elevator)
+	FOR EACH Destination IN Elevator DestinationList 
+		IF Destination = Floor THEN 
+			RETURN TRUE
+	END FOR
+	RETURN FALSE
+END SEQUENCE
+
+
+SEQUENCE FindElevator (Column, RequestedDirection, RequestedFloor, OldElevator) 'make sure to use DirectionList to find the elevator
+	FOR EACH Elevator IN Column Elevators
+		IF Elevator <> OldElevator AND AlarmDoorStatus IS OK AND OverloadStatus IS OK THEN
+			COMPUTE CurrentGap as ABSOLUTE Of CurrentFloor - RequestedFloor
+			COMPUTE ListLength as Length of DestinationList        
+			IF RequestedFloor = CurrentFloor THEN
+				IF (Status Is Stopped AND Direction = RequestedDirection) OR (Status IS Idle AND DestinationList IS EMPTY) THEN
+					RETURN Elevator  
+			ELSE IF (RequestedFloor > CurrentFloor AND Direction IS Up AND RequestedDirection IS Up) OR (RequestedFloor < CurrentFloor AND Direction IS Down AND RequestedDirection IS Down) THEN 
+				IF Status IS Moving OR Stopped THEN
+					Return Elevator
+			ELSE IF Status IS Idle AND DestinationList IS EMPTY THEN
+				Return Elevator
+			END IF
+		END IF
+	END FOR
+	CALL NearestElevator (Column, RequestedFloor, RequestedDirection) RETURNING ElevWithShortestGap 
+	IF ElevWithShortestGap NOT EMPTY AND OldElevator IS -1 THEN 
+		RETURN ElevWithShortestGap
+	ELSE 
+		CALL ShortestFloorList (Column) RETURNING ElevWithShortestList
+		RETURN ElevWithShortestList
+	END IF
+END SEQUENCE
+
+
+SEQUENCE ShortestFloorList (CurrentColumn)
+	SET Length TO 99999
+    FOR EACH Elevator IN CurrentColumn Elevators 
+        IF Length > COMPUTE Length Of DestinationList AND AlarmDoorStatus IS OK AND OverloadStatus IS OK THEN 
+			SET Length TO COMPUTE Length Of DestinationList
+			SET ElevWithShortestList TO Elevator
+		END IF			
+    END FOR 
+    RETURN ElevWithShortestList
+END SEQUENCE
+
+
+SEQUENCE NearestElevator (CurrentColumn, RequestedFloor, RequestedDirection)
+	SET Gap TO 99999
+    FOR EACH Elevator IN CurrentColumn Elevators
+        IF Gap > COMPUTE ABSOLUTE Of CurrentFloor - RequestedFLoor AND AlarmDoorStatus IS OK AND OverloadStatus IS OK THEN 
+			IF (RequestedFloor > CurrentFloor AND Direction IS Up AND RequestedDirection IS Up) OR (RequestedFloor < CurrentFloor AND Direction IS Down AND RequestedDirection IS Down) THEN 
+				SET Gap TO COMPUTE ABSOLUTE Of CurrentFloor - RequestedFLoor
+				SET ElevWithShortestGap TO Elevator 
+			END IF
+		END IF
+    END FOR 
+    RETURN ElevWithShortestGap
+END SEQUENCE
+
+
+SEQUENCE AddDestinationElev (Floor, Elevator, IsGoingInOrOut, RequestedDirection)
+    FOR EACH Destination IN Elevator DestinationList
+        IF Destination NOT EMPTY THEN
+            If Elevator Direction IS Up THEN
+                IF Floor < Destination AND Floor > CurrentFloor THEN
+                    COMPUTE Position IN DestinationList
+                    ADD Floor AT Position IN DestinationList
+                    ADD IsGoingInOrOut AT Position IN InOutList 
+                    ADD CurrentTime AT Position IN TimeStampList
+                    ADD RequestedDirection AT Position IN DirectionList
+                    RETURN
+                ELSE
+                    IF Floor > Destination AND Destination < CurrentFloor THEN
+						COMPUTE Position IN DestinationList
+						ADD Floor AT Position IN DestinationList
+						ADD IsGoingInOrOut AT Position IN InOutList 
+						ADD CurrentTime AT Position IN TimeStampList
+						ADD RequestedDirection AT Position IN DirectionList
+						RETURN
+					END IF
+                END IF
+            ELSE IF Elevator Direction IS Down
+                IF Floor > Destination AND Floor < CurrentFloor THEN
+                    COMPUTE Position IN DestinationList
+                    ADD Floor AT Position IN DestinationList
+                    ADD IsGoingInOrOut AT Position IN InOutList 
+                    ADD CurrentTime AT Position IN TimeStampList
+                    ADD RequestedDirection AT Position IN DirectionList
+                    RETURN
+                ELSE
+                    IF Floor < Destination AND Destination > CurrentFloor THEN
+						COMPUTE Position IN DestinationList
+						ADD Floor AT Position IN DestinationList
+						ADD IsGoingInOrOut AT Position IN InOutList 
+						ADD CurrentTime AT Position IN TimeStampList
+						ADD RequestedDirection AT Position IN DirectionList
+						RETURN
+                    END IF               
+                END IF
+            END IF
+        ELSE
+            ADD Floor AT First Position IN DestinationList
+            ADD IsGoingInOrOut AT First Position IN InOutList 
+            ADD CurrentTime AT First Position IN TimeStampList
+            ADD RequestedDirection AT First Position IN DirectionList
+            RETURN 
+        END IF         
+    END FOR
+END SEQUENCE 
+
+
+SEQUENCE CheckLoad 
+	FOR EACH Column IN Columns
+		FOR EACH Elevator IN Column Elevators
+			READ Load 
+			If CurrentLoad > ElevWorkLoadLimit THEN
+				SET LoadError TO 1   '//Continue to move without taking new people
+				SET Alarm TO Inactive
+				SET OverloadStatus TO Warning
+			ELSE IF CurrentLoad > ElevMaxLoadLimit THEN
+				SET LoadError TO 2   '//Halted until load is removed
+				SET Alarm TO Active
+				SET OverloadStatus TO Alarm
+			ELSE 
+				SET LoadError TO 0   '//Move Normally
+				SET Alarm TO Inactive
+				SET OverloadStatus TO OK
+			END IF
+		END FOR 
+    END FOR
+END SEQUENCE
+
+
+SEQUENCE CheckElevatorStatus 
+	FOR EACH Column IN Columns
+		FOR EACH Elevator IN Column Elevators
+			IF DoorOpenTimer = 0 Second THEN
+				SET AlarmDoorStatus TO Obstructed
+				CALL ForceCloseDoor (Elevator)
+			END IF 
+			IF IdleTimer = 0 Second THEN
+				CALL CheckElevatorATDefaultFloor (Column, Elevator) RETURNING DefaultFloor 
+				CALL AddDestinationElev (DefaultFloor, Elevator, GoingOut, EMPTY)
+			END IF
+		END FOR 
+	END FOR
+END SEQUENCE
+
+
+SEQUENCE CheckElevatorATDefaultFloor (Column, CurrentElevator)
+	FOR EACH Floor IN Column DefaultFloorList 
+		FOR EACH Elevator IN Column Elevators
+			IF Elevator <> CurrentElevator THEN
+				IF Elevator CurrentFloor <> Floor AND Elevator Status IS Idle THEN 
+					RETURN Floor 
+				END IF 
+			END IF 
+		END FOR
+	END FOR 
+END SEQUENCE
+
+
+SEQUENCE CheckRequestTimeDelay 
+	FOR EACH Column IN Columns
+		FOR EACH Elevator IN Column Elevators
+			SET IndexPosition TO 1
+			SET IndexDeleted TO FALSE
+			WHILE GET Value AT IndexPosition IN DestinationList NOT EMPTY
+				SET IndexDeleted TO FALSE
+				IF GET Value AT IndexPosition IN InOutList IS GoingIn THEN
+					SET TimeStamp AS Value AT IndexPosition IN TimeStampList
+					IF Current Time - TimeStamp > MaximumWaitingTime THEN	
+						CALL FindElevator (Elevator Direction, Destination, Elevator) RETURNING NewElevator
+						IF NewElevator <> Elevator THEN
+							SET IsGoingInOrOutTempor TO First Value FROM InOutList
+							SET RequestedDirectionTempor TO First Value FROM DirectionList
+							DELETE Value AT IndexPosition FROM DestinationList
+							DELETE Value AT IndexPosition FROM InOutList
+							DELETE Value AT IndexPosition FROM TimeStampList
+							DELETE Value AT IndexPosition FROM DirectionList
+							SET IndexDeleted TO TRUE
+							CALL AddDestinationElev (Destination, NewElevator, IsGoingInOrOutTempor, RequestedDirectionTempor)
+						END IF
+					END IF
+				END IF
+				IF IndexDeleted IS FALSE THEN
+					ADD 1 TO IndexPosition
+				END IF
+			END WHILE
+		END FOR
+	END FOR
+END SEQUENCE
+
+
+SEQUENCE VerifyDestinationList 
+	FOR EACH Column IN Columns
+		FOR EACH Elevator IN Column Elevators
+			IF First Destination IN Elevator DestinationList NOT EMPTY AND Elevator Status IS Idle THEN 
+				IF LoadError <> 2 THEN
+					IF LoadError = 1 THEN 
+						IF DestinationList IsGoingInOrOut IS GoingOut THEN
+							CALL StartMove (Elevator)
+						ELSE
+							SET DestinationTempor TO First Value FROM DestinationList
+							SET IsGoingInOrOutTempor TO First Value FROM InOutList
+							SET TimeStampTempor TO First Value FROM TimeStampList
+							SET RequestedDirectionTempor TO First Value FROM DirectionList
+							DELETE First Value FROM DestinationList
+							DELETE First Value FROM InOutList
+							DELETE First Value FROM TimeStampList
+							DELETE First Value FROM DirectionList
+							CALL FindElevator (Elevator Direction, DestinationTempor, Elevator) RETURNING NewElevator
+							CALL AddDestinationElev (DestinationTempor, NewElevator, IsGoingInOrOutTempor, RequestedDirectionTempor)
+						END IF
+					ELSE
+						IF Elevator CurrentFloor = Destination THEN 
+							CALL OpenDoor (Elevator)
+						ELSE 
+							CALL StartMove (Elevator)
+						END IF
+					END IF
+				ELSE 
+					CALL OpenDoor (Elevator)
+					CALL RedispatchDestinationList (Elevator)
+				END IF
+			END IF 
+		END FOR 
+	END FOR 
+END SEQUENCE
+
+
+SEQUENCE StartMove (Elevator)
+	SET RequestedDirection TO First Value IN Elevator DirectionList
+    IF (CurrentFloor < First Destination IN Elevator DestinationList) OR (RequestedDirection NOT Empty AND RequestedDirection IS Up) THEN
+        SET Elevator Direction TO Up
+    ELSE IF (CurrentFloor < First Destination IN Elevator DestinationList) OR (RequestedDirection NOT Empty AND RequestedDirection IS Down) THEN
+        SET Elevator Direction TO Down
+    END IF
+    SET Status TO Moving    
+    Start Move TO First Destination IN Elevator DestinationList 
+END SEQUENCE
+
+
+SEQUENCE RedispatchDestinationList (Elevator)
+	REPEAT
+		CALL FindElevator (Elevator Column, GET First Value IN Elevator DirectionList, GET First Value IN Elevator DestinationList, Elevator) RETURNING NewElevator
+		CALL AddDestinationElev (GET First Value IN Elevator DestinationList, NewElevator, GET First Value IN Elevator InOutList, GET First Value IN Elevator DirectionList)
+		DELETE First Value FROM Elevator DestinationList
+		DELETE First Value FROM Elevator InOutList
+		DELETE First Value FROM Elevator TimeStampList
+		DELETE First Value FROM Elevator DirectionList
+	UNTIL DestinationList IS Empty
+END SEQUENCE
+
+
+SEQUENCE CheckMovingElevator 
+	FOR EACH Column IN Columns
+		FOR EACH Elevator IN Column Elevators
+			IF Status IS Moving THEN
+				READ Floor Level
+				IF Elevator CurrentFloor <> Floor Level THEN
+					SET CurrentFloor TO Floor Level
+					DISPLAY Elevator CurrentFloor ON Elevator Internal AND External Display
+					DISPLAY Elevator Direction ON Elevator External Display
+				END IF
+				IF Elevator CurrentFloor = First Destination IN Elevator DestinationList THEN
+					CALL StopElevator (Elevator)
+					CALL ClearButtons (Elevator)
+				END IF
+			END IF
+			IF Status IS Stopped THEN 
+				CALL OpenDoor (Elevator)
+			END IF
+		END FOR
+	END FOR
+END SEQUENCE 
+
+
+SEQUENCE StopElevator (Elevator)
+	Stop Elevator
+	INIT Timer TO 2 Seconds
+	INIT DoorOpenTimer TO 30 Seconds
+	WAIT UNTIL Timer = 0 Second
+	SET Status TO Stopped
+END SEQUENCE
+
+
+SEQUENCE ClearButtons (Elevator)
+	CALL FindDirectionButton (Elevator Direction, Elevator CurrentFloor) RETURNING Button
+	SET Button Inactive
+	CALL FindFloorButton (Elevator, Elevator CurrentFloor) RETURNING Button
+	SET Button Inactive	
+END SEQUENCE
+
+
+SEQUENCE FindDirectionButton (Direction, RequestedFloor) 
+	FOR EACH Column IN Columns
+		FOR EACH Button IN Column Buttons
+			IF RequestedFloor = FloorButton AND Direction = DirectionButton THEN
+				RETURN Button 
+		END FOR 
+	END FOR
+END SEQUENCE 
+
+
+SEQUENCE FindFloorButton (Elevator, CurrentFloor) 
+    FOR EACH Button IN Elevator Buttons
+        IF CurrentFloor = FloorButton THEN
+			RETURN Button 
+    END FOR 
+END SEQUENCE 
+
+
+SEQUENCE OpenDoor (Elevator)
+	WAIT UNTIL Elevator Status IS Stopped OR Idle 
+	Open Door
+    INIT Timer TO 5 Seconds 
+	WHILE Timer > 0 Second OR Door IS Obstructed OR LoadError IS 2
+		KEEP Door Opened
+	END WHILE 
+	CALL CloseDoor (Elevator)
+END SEQUENCE
+
+
+SEQUENCE CloseDoor (Elevator)
+	Close Door
+	WHILE Door IS Closing 
+		IF Obstructed THEN
+			Call OpenDoor (Elevator)
+	END WHILE
+	WAIT UNTIL Door IS Closed
+	SET Elevator Status TO Idle 
+	INIT IdleTimer TO 30 Seconds
+END SEQUENCE
+
+
+SEQUENCE ForceCloseDoor (Elevator)
+	SET Alarm TO Active 
+	Close Slowly
+	WAIT UNTIL Door IS Closed
+	SET Elevator Status TO Idle
+	INIT IdleTimer TO 30 Seconds
+	SET Alarm TO Inactive
+	SET AlarmDoorStatus TO OK 
+END SEQUENCE
+
