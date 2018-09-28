@@ -1,6 +1,6 @@
 # Residential Elevator Controller In Python From My Pseudocode From Last Week
 # Written by : Valerie Beaupre
-# Date : 2018/09/24 TO 2018/09/27
+# Date : 2018/09/24 TO 2018/09/28
 
 import itertools
 import os
@@ -11,7 +11,7 @@ from datetime import timedelta
 nbColumn = 1
 nbElev = 2
 nbFloors = 10
-floorNames = ["BSMT 1", "BSMT 2", "Lobby", "2nd","3rd", "4th", "5th", "6th", "7th", "8th"]
+floorNames = ["BSMT 2", "BSMT 1", "Lobby", "2nd","3rd", "4th", "5th", "6th", "7th", "8th"]
 lobby = 3
 defaultFloor = 3
 timePerFloor = 1000
@@ -35,7 +35,7 @@ Stopped = 2
 Moving = 3
 
 #Door status
-oorStatusNameList= ["Closed","Closing","Opening","Opened"]
+DoorStatusNameList = ["Closed","Closing","Opening","Opened"]
 Closed = 0
 Closing = 1
 Opening = 2
@@ -133,7 +133,6 @@ class ElevatorController:
                 length = len(elevator.destinationList)
                 elevWithShortestList = elevator
         return elevWithShortestList
-        print("shortestList")
 
     def nearestElevator(self, requestedFloor, requestedDirection):
         gap = 99999
@@ -144,7 +143,6 @@ class ElevatorController:
                     gap = abs(elevator.currentFloor - elevator.destinationList[0])
                     elevWithShortestGap = elevator
         return elevWithShortestGap
-        print("nearestELev")
 
     def addDestinationElev(self, floor, elevator, isGoingInOrOut, requestedDirection):
         if elevator.destinationList:
@@ -211,7 +209,6 @@ class ElevatorController:
                 elevator.door.status = Closed
                 elevator.status = Idle
                 elevator.idleTime = timeInMilli()
-                #print("CloseDoor 1")
                 print("Elevator " + str(elevator.id) + " door is closed")
             
             if (timeInMilli() > elevator.forceCloseTime + delayForceCloseDoor) and (elevator.door.status is Closing) and elevator.door.alarm is False:
@@ -220,12 +217,11 @@ class ElevatorController:
                 elevator.alarm = False
                 elevator.door.alarm = False
                 elevator.door.status = Closed
-                #print("CloseDoor 2")
                 print("Elevator " + str(elevator.id) + " door is closed")
 
             if (timeInMilli() > elevator.stopTime + delayElevatorStopping) and elevator.status is Stopping:
-                elevator.Status = Stopped
-                elevator.Direction = GoingNowhere
+                elevator.status = Stopped
+                elevator.direction = GoingNowhere
                 print("Elevator " + str(elevator.id) + " is stopped at " + str(floorNames[elevator.currentFloor-1]) + " floor for people " + inOrOutNameList[elevator.inOutList[0]]) 
                 elevator.directionList.pop(0)
                 elevator.inOutList.pop(0)
@@ -238,7 +234,7 @@ class ElevatorController:
                         if (elevator.currentFloor is not elevator.destinationList[0]) and elevator.door.status is Closed:
                             elevator.startMove()
                         elif (elevator.inOutList[0] is GoingIn) and (elevator.currentFloor is elevator.destinationList[0]) and elevator.door.status is Closed:
-                            print("Open Door 1")
+                            #print("Open Door 1")
                             elevator.destinationList.pop(0)
                             elevator.directionList.pop(0)
                             elevator.inOutList.pop(0)
@@ -262,7 +258,7 @@ class ElevatorController:
                         elevator.stopElevator()
                         self.clearButtons(elevator)
                         elevator.destinationList.pop(0)
-                        #print(elevator.destinationList)
+                        print(elevator.destinationList)
 
             if elevator.status is Stopped and elevator.door.status is Closed:
                 #print("OpenDoor 2")
@@ -270,10 +266,11 @@ class ElevatorController:
 
     def clearButtons(self, elevator):
         if elevator.directionList[0] is not "":
+            print(elevator.directionList[0], elevator.destinationList[0])
             button = self.columns.findDirectionButton(elevator.directionList[0],elevator.destinationList[0]) 
             button.status = Inactive
             print("Request button direction " + directionNameList[button.direction] + " at " + floorNames[elevator.destinationList[0]-1] + " floor is inactive")
-        button = elevator.findFloorButton()
+        button = elevator.findFloorButton(elevator.destinationList[0])
         button.status = Inactive
         print("Elevator " + str(elevator.id) + " " + floorNames[elevator.currentFloor-1] + " floor button is inactive")
 
@@ -297,24 +294,22 @@ class Column:
             #print("elevator.id")
 
         self.destinationList = []
-        self.directionButtons = []
+        self.directionButtonList = []
         for index in range(nbFloors):
-            directionButtonList = []
             if index == 0:
-                directionButtonList.append(DirectionButton(Up))
+                self.directionButtonList.append(DirectionButton(Up, index))
             elif index == (nbFloors - 1):
-                directionButtonList.append(DirectionButton(Down))
+                self.directionButtonList.append(DirectionButton(Down, index))
             else:
-                directionButtonList.append(DirectionButton(Up))
-                directionButtonList.append(DirectionButton(Down))
+                self.directionButtonList.append(DirectionButton(Up, index))
+                self.directionButtonList.append(DirectionButton(Down, index))
 
-            self.destinationList.append(Floor(index, floorNames[index], directionButtonList))
+            self.destinationList.append(Floor(index, floorNames[index], self.directionButtonList))
 
-    def findDirectionButton(self, direction, requestedFloor):
-        for button in self.directionButtons:
-            if (requestedFloor == self.directionButtons) and (direction == self.directionButtons):
+    def findDirectionButton(self, requestedDirection, requestedFloor):
+        for button in self.directionButtonList:
+            if (button.direction is requestedDirection) and (button.floor is requestedFloor):
                 return button
-        print("Column Created")
 
 
 class Elevator:
@@ -345,28 +340,27 @@ class Elevator:
 
     def findFloorButton (self, currentFloor):
         for button in self.floorButtons: 
-            if self.currentFloor is self.floorButtons:
+            if button.floor is self.currentFloor:
                 return button 
 
     def startMove(self):
         if (self.currentFloor < self.destinationList[0]): 
-            self.direction : Up
+            self.direction = Up
         elif (self.currentFloor > self.destinationList[0]): 
-            self.direction : Down
-        self.status : Moving
+            self.direction = Down
+        self.status = Moving
         self.moveTimeStamp = timeInMilli()
         self.floorLevelForTiming = self.currentFloor
-        #print("Elevator " + str(self.id) + " is moving " + directionNameList[self.direction] + " to " + floorNames[self.destination[0]-1] + " floor for people " + inOrOutNameList[self.inOutList[0]])
-        print("Elevator " + str(self.id) + " is moving " + directionNameList[self.direction] + " to " + floorNames[self.destinationList[0]-1] + " floor")
+        print("Elevator " + str(self.id) + " is moving " + directionNameList[self.direction] + " to " + floorNames[self.destinationList[0]-1] + " floor for people " + inOrOutNameList[self.inOutList[0]])
 
     def stopElevator(self):
         self.stopTime = timeInMilli()
-        self.Status = Stopping
+        self.status = Stopping
         print("Elevator " + str(self.id) + " is stopping at " + floorNames[self.destinationList[0]-1] + " floor")
 
     def openDoor(self):
         self.door.status = Opening
-        self.OpenDoorTime = timeInMilli()
+        self.openDoorTime = timeInMilli()
         print("Elevator " + str(self.id) + " door is opening")
 
     def closeDoor(self):
@@ -376,13 +370,14 @@ class Elevator:
 
     def forceCloseDoor(self):
         self.alarm = True 
-        print("Elevator " + str(self.id) + " door is losing slowly (Force Close)")
+        print("Elevator " + str(self.id) + " door is closing slowly (Force Close)")
         self.forceCloseTime = timeInMilli()
 
 
 class DirectionButton:
-    def __init__(self, direction):
-        self.direction = ""  # UP or DOWN
+    def __init__(self, direction, floor):
+        self.floor = floor
+        self.direction = direction  # UP or DOWN
         self.status = Inactive  # Active or Inactive
 
 
@@ -415,11 +410,11 @@ controller = ElevatorController()
 def initTest(elev1Floor,elev2Floor):
     controller.columns.elevators[0].currentFloor = elev1Floor
     controller.columns.elevators[0].floorLevelForTiming = elev1Floor
-    print("Elevator 1 current floor is " + floorNames[controller.columns.elevators[0].currentFloor-1])
+    print("Elevator 1 current floor is " + floorNames[controller.columns.elevators[0].currentFloor-1] + " floor")
     
     controller.columns.elevators[1].currentFloor = elev2Floor
     controller.columns.elevators[1].floorLevelForTiming = elev2Floor
-    print("Elevator 2 current floor is " + floorNames[controller.columns.elevators[1].currentFloor-1])
+    print("Elevator 2 current floor is " + floorNames[controller.columns.elevators[1].currentFloor-1] + " floor")
 
 
 """
@@ -461,24 +456,22 @@ def main():
         if firstInstructionDone is False:
             firstInstructionDone = True
             #Firt user
-            elevator.append(controller.requestElevator(10, Down))
+            elevator.append(controller.requestElevator(10, Up))
             #Second user
-            elevator.append(controller.requestElevator(1, Up))
+            elevator.append(controller.requestElevator(3, Down))
             #Third user
-            #Elevator.append(controller.requestElevator(9, Down))
+            #elevator.append(controller.requestElevator(9, Down))
             #First user
             controller.requestFloor(elevator[0],3)
             #Second user
-            controller.requestFloor(elevator[1],5)
+            controller.requestFloor(elevator[1],2)
             #Third user
-            #controller.requestFloor(elevator[2],1)
-    
+            #controller.requestFloor(elevator[2],2)
 
         #CONTROLLER SEQUENCES
         controller.checkElevatorStatus()
         controller.verifyDestinationList()
         controller.checkMovingElevator()
-
 
         #STOP THE CONTROLLER WHEN DONE OR TIMED OUT
         if ((timeInMilli() > controller.columns.elevators[0].idleTime + appTimeOut) and (timeInMilli() > controller.columns.elevators[1].idleTime + appTimeOut)):
@@ -491,17 +484,16 @@ main()
 
 
 # **********************************************************************************
-# **********************************************************************************
 
-""" ****************************************************************************************
-
+"""
 Residential Scenario 1:
 A User located at Floor 1 calls for elevators Originating from Basement 1 and Floor 4, he gets one and gets to the Fifth floor with it'
 
 Residential Scenario 2:
-A User located at Floor Basement 2 calls for elevators Originating from Floor 8 and Floor 1, he gets one to get to the 4th floor, Simultaneously, someone at Floor 1 requests an elevator to get to 3rd floor as someone at 7th requests to go down to basement 1'
+A User located at Floor Basement 2 calls for elevators Originating from Floor 8 and Floor 1, he gets one to get to the 4th floor, 
+Simultaneously, someone at Floor 1 requests an elevator to get to 3rd floor AS someone at 7th requests to go down to basement 1'
 
 Residential Scenario 3:
-A User located at Floor 8 calls for elevators Originating from Floor 8 and Floor 1, he gets one to get to the 1st floor. Simultaneously Someone at Floor 1 requests an elevator to get to Basement 1'
-
+A User located at Floor 8 calls for elevators Originating from Floor 8 and Floor 1, he gets one to get to the 1st floor. 
+Simultaneously Someone at Floor 1 requests an elevator to get to Basement 1'
  """
