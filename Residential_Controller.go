@@ -1,8 +1,8 @@
 package main
 
 import (
-	"math"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -14,50 +14,50 @@ var inOutNameList = []string{"GoingIn", "GoingOut"}
 var doorStatusNameList = []string{"Idle", "Stopping", "Stopped", "Moving"}
 var elevatorStatusNameList = []string{"Closed", "Closing", "Opening", "Opened"}
 
-//Constants definition
-const (
-	nbFloors              int   = 10
-	lobby                 int   = 3
-	timePerFloor          int64 = 1000
-	delayElevatorStopping int64 = 2000
-	delayDoorOpening      int64 = 1000
-	delayBeforeCloseDoor  int64 = 5000
-	delayForceClose       int64 = 50000
-	timeoutDoorOpen       int64 = 15000
-	delayMaxIdleTime      int64 = 15000
-	appTimeout            int64 = 60000
+// Constants Definitions
 
-	//Elevator directions
-	goingNowhere int = 0
-	down         int = 1
-	up           int = 2
+var appTimeout int64 = 60000
 
-	//People entering or leaving the elevator
-	goingIn  int = 0
-	gointOut int = 1
+var nbFloors = 10
+var lobby = 3
+var timePerFloor int64 = 1000
+var delayElevatorStopping int64 = 2000
+var delayDoorOpening int64 = 1000
+var delayBeforeCloseDoor int64 = 5000
+var delayForceClose int64 = 50000
+var timeoutDoorOpen int64 = 15000
+var delayMaxIdleTime int64 = 15000
 
-	//Elevator status
-	idle     int = 0
-	stopping int = 1
-	stopped  int = 2
-	moving   int = 3
+//Elevator directions
+var goingNowhere = 0
+var down = 1
+var up = 2
 
-	//Door status
-	closed  int = 0
-	closing int = 1
-	opening int = 2
-	opened  int = 3
+//People entering or leaving the elevator
+var goingIn = 0
+var goingOut = 1
 
-	//Buttons function
-	addFloor     int = 0
-	callElevator int = 1
-	openDoor     int = 2
-	closeDoor    int = 3
+//Elevator status
+var idle = 0
+var stopping = 1
+var stopped = 2
+var moving = 3
 
-	//Buttons status
-	inactive int = 0
-	active   int = 1
-)
+//Door status
+var closed = 0
+var closing = 1
+var opening = 2
+var opened = 3
+
+//Buttons function
+var addFloor = 0
+var callElevator = 1
+var openDoor = 2
+var closeDoor = 3
+
+//Buttons status
+var inactive = 0
+var active = 1
 
 func getTimeInMilli() int64 {
 	now := time.Now()
@@ -111,44 +111,39 @@ func findIndexInList(list []int, value int) int {
 	return -1
 }
 
-// OpenDoorButton :
-type OpenDoorButton struct {
-	door int
-}
-
-// CloseDoorButton :
-type CloseDoorButton struct {
-	door int
+// DirectionButton :
+type DirectionButton struct {
+	ID        int
+	name      string
+	function  int
+	floor     int
+	state     int
+	direction int
 }
 
 // FloorButton :
 type FloorButton struct {
-	floor  int
-	status int
-}
-
-// DirectionButton :
-type DirectionButton struct {
-	floor     int
-	direction int
-	status    int
+	ID       int
+	name     string
+	function int
+	floor    int
+	state    int
 }
 
 // Door :
 type Door struct {
-	ID          int
-	status      int
-	alarm       bool
-	obstruction bool
+	ID     int
+	alarm  bool
+	status int
 }
 
 // Elevator :
 type Elevator struct {
 	ID                  int
 	currentFloor        int
+	floorLevelForTiming int
 	direction           int
 	status              int
-	floorLevelForTiming int
 	alarm               bool
 	moveTimeStamp       int64
 	idleTime            int64
@@ -157,34 +152,290 @@ type Elevator struct {
 	stopTime            int64
 	forceCloseTime      int64
 	destinationList     []int
-	inOutList           []int
 	directionList       []int
-	floorButtons        []int
+	inOutList           []int
 	door                *Door
-	openDoorButton      *OpenDoorButton
-	closeDoorButton     *CloseDoorButton
+	Buttons             []*FloorButton
 }
 
 // Column :
 type Column struct {
-	nbElev              int
-	defaultFloor        int
-	nbDirectionButtons  int
-	elevator            []int
-	destinationList     []int
-	directionButtonList []int
+	ID               int
+	elevators        []*Elevator
+	directionButtons []*DirectionButton
 }
 
-// Floor :
-type Floor struct {
-	ID   int
-	name int
-}
-
-// ElevatorController :
+// Elevator Controller :
 type ElevatorController struct {
 	ID      int
 	columns *Column
+}
+
+func (ctrl *ElevatorController) requestElevator(floorNumber int, direction int) *Elevator {
+	fmt.Println(join("Elevator requested at ", floorName[floorNumber-1], " floor to go ", directionNameList[direction]))
+	elevator := ctrl.callElevator(direction, floorNumber, goingIn)
+	return elevator
+}
+
+func (ctrl *ElevatorController) requestFloor(elevator *Elevator, requestedFloor int) {
+	ctrl.addDestination(requestedFloor, elevator, goingOut, -1)
+	return
+}
+
+func (ctrl *ElevatorController) callElevator(requestedDirection int, requestedFloor int, isGoingInOrOut int) *Elevator {
+	elevator := ctrl.findElevator(requestedDirection, requestedFloor)
+	if ctrl.checkIfExist(requestedFloor, elevator) == false {
+		ctrl.addDestination(requestedFloor, elevator, isGoingInOrOut, requestedDirection)
+	}
+	return elevator
+}
+
+func (ctrl *ElevatorController) addDestination(floor int, elevator *Elevator, isGoingInOrOut int, requestedDirection int) {
+	if len(elevator.destinationList) > 0 {
+		for _, destination := range elevator.destinationList {
+			if elevator.direction != 0 {
+				if elevator.direction == up {
+					if (floor < destination) && (floor > elevator.currentFloor) {
+						insertPosition := findIndexInList(elevator.destinationList, destination)
+						elevator.destinationList = insertInList(elevator.destinationList, insertPosition, floor)
+						elevator.directionList = insertInList(elevator.directionList, insertPosition, requestedDirection)
+						elevator.inOutList = insertInList(elevator.inOutList, insertPosition, isGoingInOrOut)
+						return
+					} else if (floor > destination) && (floor < elevator.currentFloor) {
+						insertPosition := findIndexInList(elevator.destinationList, destination)
+						elevator.destinationList = insertInList(elevator.destinationList, insertPosition, floor)
+						elevator.directionList = insertInList(elevator.directionList, insertPosition, requestedDirection)
+						elevator.inOutList = insertInList(elevator.inOutList, insertPosition, isGoingInOrOut)
+						return
+					}
+				} else if elevator.direction == down {
+					if (floor > destination) && (floor < elevator.currentFloor) {
+						insertPosition := findIndexInList(elevator.destinationList, destination)
+						elevator.destinationList = insertInList(elevator.destinationList, insertPosition, floor)
+						elevator.directionList = insertInList(elevator.directionList, insertPosition, requestedDirection)
+						elevator.inOutList = insertInList(elevator.inOutList, insertPosition, isGoingInOrOut)
+						return
+					} else if (floor < destination) && (floor > elevator.currentFloor) {
+						insertPosition := findIndexInList(elevator.destinationList, destination)
+						elevator.destinationList = insertInList(elevator.destinationList, insertPosition, floor)
+						elevator.directionList = insertInList(elevator.directionList, insertPosition, requestedDirection)
+						elevator.inOutList = insertInList(elevator.inOutList, insertPosition, isGoingInOrOut)
+						return
+					}
+				}
+			} else {
+				elevator.destinationList = append(elevator.destinationList, floor)
+				elevator.directionList = append(elevator.directionList, requestedDirection)
+				elevator.inOutList = append(elevator.inOutList, isGoingInOrOut)
+				return
+			}
+		}
+	} else {
+		elevator.destinationList = append(elevator.destinationList, floor)
+		elevator.directionList = append(elevator.directionList, requestedDirection)
+		elevator.inOutList = append(elevator.inOutList, isGoingInOrOut)
+		return
+	}
+	return
+}
+
+func (ctrl *ElevatorController) findElevator(requestedDirection int, requestedFloor int) *Elevator {
+	var idleElevatorList []*Elevator
+	var elevatorToUse *Elevator
+	for _, elevator := range ctrl.columns.elevators {
+		if elevator.door.alarm == false {
+			if requestedFloor == elevator.currentFloor {
+				if (elevator.status == stopped && elevator.direction == requestedDirection) || (elevator.status == idle && len(elevator.destinationList) == 0) {
+					return elevator
+				}
+			} else if (requestedFloor > elevator.currentFloor) && ((elevator.direction == up) || (elevator.direction == goingNowhere)) && (requestedDirection == up) && ((elevator.status == moving) || (elevator.status == stopped)) {
+				return elevator
+			} else if (requestedFloor > elevator.currentFloor) && ((elevator.direction == down) || (elevator.direction == goingNowhere)) && (requestedDirection == down) && ((elevator.status == moving) || (elevator.status == stopped)) {
+				return elevator
+			} else if elevator.status == idle && len(elevator.destinationList) == 0 {
+				idleElevatorList = append(idleElevatorList, elevator)
+			}
+		}
+	}
+	if len(idleElevatorList) != 0 {
+		if len(idleElevatorList) > 1 {
+			gap := 999999
+			for _, elevator := range idleElevatorList {
+				if gap > int(math.Abs(float64(elevator.currentFloor-requestedFloor))) {
+					gap = int(math.Abs(float64(elevator.currentFloor - requestedFloor)))
+					elevatorToUse = elevator
+				}
+			}
+			return elevatorToUse
+		} else {
+			return idleElevatorList[0]
+		}
+	}
+	elevator := ctrl.nearestElevator(requestedFloor, requestedDirection)
+	if elevator != nil {
+		return elevator
+	} else {
+		return ctrl.shortestFloorList()
+	}
+	return nil
+}
+
+func (ctrl *ElevatorController) verifyDestinationList() {
+	for _, elevator := range ctrl.columns.elevators {
+		if (len(elevator.destinationList) > 0) && (len(elevator.inOutList) > 0) {
+			if elevator.destinationList[0] != 0 && elevator.status == idle {
+				if elevator.currentFloor != elevator.destinationList[0] && elevator.door.status == closed {
+					elevator.startMove()
+				} else if (elevator.inOutList[0] == goingIn) && (elevator.currentFloor == elevator.destinationList[0]) && (elevator.door.status == closed) {
+					elevator.destinationList = append(elevator.destinationList[:0], elevator.destinationList[1:]...)
+					elevator.directionList = append(elevator.directionList[:0], elevator.directionList[1:]...)
+					elevator.inOutList = append(elevator.inOutList[:0], elevator.inOutList[1:]...)
+					elevator.openDoor()
+				}
+			}
+		}
+	}
+	return
+}
+
+func (ctrl *ElevatorController) checkElevatorStatus() {
+	for _, elevator := range ctrl.columns.elevators {
+		if (getTimeInMilli() > (elevator.openDoorTime + timeoutDoorOpen)) && elevator.door.status != closed {
+			elevator.door.alarm = true
+			elevator.forceCloseDoor()
+		}
+		if (getTimeInMilli() > (elevator.openDoorTime + delayDoorOpening)) && (elevator.door.status == opening) {
+			elevator.door.status = opened
+			fmt.Println(join("Elevator ", strconv.Itoa(elevator.ID), " door is opened"))
+		}
+		if ((getTimeInMilli() > (elevator.openDoorTime + delayBeforeCloseDoor)) && elevator.door.status == opened) || elevator.door.alarm == true {
+			elevator.closeDoor()
+		}
+		if (getTimeInMilli() > (elevator.closeDoorTime + delayDoorOpening)) && elevator.door.status == closing {
+			if elevator.door.alarm == true && elevator.door.status != opening {
+				elevator.openDoor()
+				fmt.Println(join("Elevator ", strconv.Itoa(elevator.ID), " door is opening again because of an obstruction (Force Close Door"))
+			}
+			elevator.door.status = closed
+			elevator.status = idle
+			elevator.idleTime = getTimeInMilli()
+			fmt.Println(join("Elevator ", strconv.Itoa(elevator.ID), " door is closed 1"))
+		}
+		if (getTimeInMilli() > (elevator.forceCloseTime + delayForceClose)) && elevator.door.status == closing && elevator.door.alarm == false {
+			elevator.status = idle
+			elevator.idleTime = getTimeInMilli()
+			elevator.alarm = false
+			elevator.door.alarm = false
+			elevator.door.status = closed
+			fmt.Println(join("Elevator ", strconv.Itoa(elevator.ID), " door is closed 2"))
+		}
+		if (getTimeInMilli() > (elevator.stopTime + delayElevatorStopping)) && elevator.status == stopping {
+			elevator.status = stopped
+			elevator.direction = goingNowhere
+			fmt.Println(join("Elevator ", strconv.Itoa(elevator.ID), " is stopped at ", floorName[elevator.currentFloor-1], " floor for people ", inOutNameList[elevator.inOutList[0]]))
+			elevator.directionList = append(elevator.directionList[:0], elevator.directionList[1:]...)
+			elevator.inOutList = append(elevator.inOutList[:0], elevator.inOutList[1:]...)
+		}
+	}
+	return
+}
+
+func (ctrl *ElevatorController) checkMovingElevator() {
+	for _, elevator := range ctrl.columns.elevators {
+		if elevator.status == moving && elevator.door.alarm == false {
+			if getTimeInMilli() > (elevator.moveTimeStamp + timePerFloor) {
+				if elevator.currentFloor < elevator.destinationList[0] {
+					elevator.floorLevelForTiming++
+				} else {
+					elevator.floorLevelForTiming--
+				}
+				elevator.moveTimeStamp = getTimeInMilli()
+				if elevator.currentFloor != elevator.floorLevelForTiming {
+					elevator.currentFloor = elevator.floorLevelForTiming
+					fmt.Println(join("Elevator ", strconv.Itoa(elevator.ID), " is at ", floorName[elevator.currentFloor-1], " floor "))
+				}
+				if elevator.currentFloor == elevator.destinationList[0] {
+					elevator.stopElevator()
+					ctrl.clearButtons(elevator)
+					elevator.destinationList = append(elevator.destinationList[:0], elevator.destinationList[1:]...)
+				}
+			}
+		}
+		if elevator.status == stopped && elevator.door.status == closed {
+			elevator.openDoor()
+		}
+	}
+	return
+}
+
+func (ctrl *ElevatorController) clearButtons(elevator *Elevator) {
+	if elevator.directionList[0] > 0 {
+		button := ctrl.columns.findResquestButton(elevator.directionList[0], elevator.destinationList[0])
+		button.state = inactive
+		fmt.Println(join("Request direction button ", floorName[elevator.currentFloor-1], " floor is inactive"))
+	}
+	button := elevator.findFloorButton()
+	button.state = inactive
+	fmt.Println(join("Elevator ", strconv.Itoa(elevator.ID), " ", floorName[elevator.currentFloor-1], " floor button is inactive"))
+	return
+}
+
+func (ctrl *ElevatorController) shortestFloorList() *Elevator {
+	length := 999999
+	var shortestList *Elevator
+	for _, elevator := range ctrl.columns.elevators {
+		if length > len(elevator.destinationList) {
+			length = len(elevator.destinationList)
+			shortestList = elevator
+		}
+	}
+	return shortestList
+}
+
+func (ctrl *ElevatorController) nearestElevator(requestedFloor int, requestedDirection int) *Elevator {
+	gap := 999999
+	var shortestGap *Elevator
+	for _, elevator := range ctrl.columns.elevators {
+		if (gap > int(math.Abs(float64(elevator.currentFloor-elevator.destinationList[0])))) && elevator.door.alarm == false {
+			if ((requestedFloor > elevator.currentFloor) && ((elevator.direction == up) || (elevator.direction == goingNowhere)) && (requestedDirection == up)) || ((requestedFloor > elevator.currentFloor) && ((elevator.direction == down) || (elevator.direction == goingNowhere)) && (requestedDirection == down)) {
+				gap = int(math.Abs(float64(elevator.currentFloor - elevator.destinationList[0])))
+				shortestGap = elevator
+			}
+		}
+
+	}
+	return shortestGap
+}
+
+func (ctrl *ElevatorController) checkIfExist(floor int, elevator *Elevator) bool {
+	if len(elevator.destinationList) > 0 {
+		for _, destination := range elevator.destinationList {
+			if destination == floor {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (col *Column) findResquestButton(requestedDirection int, requestedFloor int) *DirectionButton {
+	for _, button := range col.directionButtons {
+		if button.direction == requestedDirection && button.floor == requestedFloor {
+			return button
+		}
+	}
+	return nil
+}
+
+func (elev *Elevator) startMove() {
+	if elev.currentFloor < elev.destinationList[0] {
+		elev.direction = up
+	} else {
+		elev.direction = down
+	}
+	elev.status = moving
+	elev.floorLevelForTiming = elev.currentFloor
+	fmt.Println(join("Elevator ", strconv.Itoa(elev.ID), " is moving ", directionNameList[elev.direction], " to ", floorName[elev.destinationList[0]-1], " floor"))
 }
 
 func (elev *Elevator) stopElevator() {
@@ -211,275 +462,115 @@ func (elev *Elevator) forceCloseDoor() {
 	fmt.Println(join("Elevator ", strconv.Itoa(elev.ID), " door is closing slowly (Force close)"))
 }
 
-func (elev *Elevator) findFloorButton() {
-	for _, button := range elev.floorButtons {
+func (elev *Elevator) findFloorButton() *FloorButton {
+	for _, button := range elev.Buttons {
 		if button.floor == elev.currentFloor {
-			return button
-		}
-	}
-}
-
-func (elev *Elevator) startMove() {
-	if elev.currentFloor < lev.destinationList[0] {
-		elev.direction = up
-	} else {
-		elev.direction = down
-	}
-	elev.status = moving
-	elev.floorLevelForTiming = elev.currentFloor
-	fmt.Println(join("Elevator ", strconv.Itoa(elev.ID), " is moving ", directionNameList[elev.direction], " to ", floorName[elev.destinationList[0]-1], " floor"))
-}
-
-func (col *Column) findDirectionButton() {
-	for _, button := range col.directionButtonList {
-		if button.direction == requestedDirection && button.floor == requestedFloor {
 			return button
 		}
 	}
 	return nil
 }
 
-func (ctrl *ElevatorController) requestElevator(floorNumber int, direction int) *Elevator {
-	fmt.Println(join("Elevator requested at ", floorNames[floorNumber-1], " to go ", directionNameList[direction]))
-	elevator := ctrl.callElevator(direction, floorNumber, goingIn)
-	return elevator
-}
+func createcontroller(nbElevators int, nbFloors int, defaultFloor [2]int) *ElevatorController {
+	idGen := &Counter{count: 0}
+	ctrl := &ElevatorController{ID: 1}
+	ctrl.columns = &Column{ID: 1}
+	if nbElevators > 0 && nbFloors > 0 && defaultFloor[0] > 0 && defaultFloor[1] > 0 {
 
-func (ctrl *ElevatorController) requestFloor(elevator, requestedFloor) {
-	ctrl.addDestinationElev(requestedFloor, elevator, gointOut, -1)
-	return
-}
-
-func (ctrl *ElevatorController) callElevator(requestedDirection int, requestedFloor int, isGoingInOrOut int) {
-	elevator := ctrl.findElevator(requestedDirection, requestedFloor)
-	if ctrl.checkIfDestinExist(requestedFloor, elevator) == false {
-		ctrl.addDestinationElev(requestedFloor, elevator, gointOut, requestedDirection)
-	}
-	return
-}
-
-func (ctrl *ElevatorController) checkIfDestinExist(floor int, elevator *Elevator) bool {
-	if len(elevator.destinationList) > 0 {
-		for _, destination := range elevator.destinationList {
-			if destination == floor {
-				return true
+		for index := 0; index < nbElevators; index++ {
+			ctrl.columns.elevators = append(ctrl.columns.elevators, &Elevator{ID: index + 1, currentFloor: defaultFloor[index], floorLevelForTiming: defaultFloor[index], direction: goingNowhere, status: idle, alarm: false})
+			ctrl.columns.elevators[index].idleTime = getTimeInMilli()
+			for index2 := 0; index2 < nbFloors; index2++ {
+				ctrl.columns.elevators[index].Buttons = append(ctrl.columns.elevators[index].Buttons, &FloorButton{ID: index2, name: floorName[index2], function: addFloor, state: inactive, floor: index2 + 1})
 			}
+			ctrl.columns.elevators[index].Buttons = append(ctrl.columns.elevators[index].Buttons, &FloorButton{ID: nbFloors + 1, name: "", function: openDoor, state: inactive})
+			ctrl.columns.elevators[index].Buttons = append(ctrl.columns.elevators[index].Buttons, &FloorButton{ID: nbFloors + 1, name: "", function: closeDoor, state: inactive})
+			ctrl.columns.elevators[index].door = &Door{ID: 1}
 		}
-	}
-	return false
-}
-
-func (ctrl *ElevatorController) shortestdestinationList() *Elevator {
-	length := 99999
-	var shortestList *Elevator
-	for _, elevator := ctrl.columns.elevators {
-		if length > len(elevator.destinationList) {
-			length = len(elevator.destinationList)
-			elevWithShortestList = elevator
-		}
-	}
-	return elevWithShortestList
-}
-
-func (ctrl *ElevatorController) nearestElevator(requestedFloor int, requestedDirection int) *Elevator {
-	gap := 99999 
-	var shortestGap *Elevator
-	for _, elevator := range ctrl.columns.elevators {
-		if (gap > int(math.Abs(float64(elevator.currentFloor - elevator.destinationList[0])))) && elevator.door.alarm == false {
-			if ((requestedFloor > elevator.currentFloor) && ((elevator.direction == up) || (elevator.direction == goingNowhere)) && (requestedDirection == up)) || ((requestedFloor > elevator.direction == down || (elevator.direction == goingNowhere)) && (requestedDirection == down)) {
-				gap = int(math.Abs(float64(elevator.currentFloor - elevator.destinationList[0])))
-				elevWithShortestGap = elevator
-			}
-		}
-	}
-	return elevWithShortestGap
-}
-
-func (ctrl *ElevatorController) clearButtons(elevator *ElevatorController) {
-	if elevator.directionList[0] > 0 {
-		button := ctrl.columns.findDirectionButton(elevator.directionList[0], elevator.destinationList[0])
-		button.status = inactive
-		fmt.Println(join("Request button direction ", floorName[elevator.currentFloor-1], " floor is inactive"))
-	}
-	button := elevator.findFloorButton(elevator.destinationList[0])
-	button.status = inactive
-	fmt.Println(join("Elevator ", strconv.Itoa(elevator.ID), " ", floorName[elevator.currentFloor-1], " floor button is inactive"))
-	return
-}
-
-func (ctrl *ElevatorController) checkMovingElevator() {
-	for _, elevator := range ctrl.columns.elevators {
-		if elevator.status == moving && elevator.door.alarm == false {
-			if (getTimeInMilli() - elevator.moveTimeStamp) >= timePerFloor {
-				if elevator.currentFloor < elevator.destinationList[0] {
-					elevator.floorLevelForTiming++
+		for index2 := 0; index2 < nbFloors; index2++ {
+			for index3 := 0; index3 < 2; index3++ {
+				if index3 == 0 {
+					ctrl.columns.directionButtons = append(ctrl.columns.directionButtons, &DirectionButton{ID: idGen.currentValue(), name: string(index2 + 1), function: callElevator, floor: index2 + 1, state: inactive, direction: up})
 				} else {
-					elevator.floorLevelForTiming--
-				}
-				elevator.moveTimeStamp = getTimeInMilli
-				if elevator.currentFloor != elevator.floorLevelForTiming {
-					elevator.currentFloor = elevator.floorLevelForTiming
-					fmt.Println(join("Elevator ", strconv.Itoa(elevator.ID), " is at ", floorName[elevator.currentFloor-1], "floor"))
-				}
-				if elevator.currentFloor == elevator.destinationList[0] {
-					elevator.stopElevator()
-					ctrl.clearButtons(elevator)
-					elevator.destinationList = append(elevator.destinationList[:0], elevator.destinationList[1:]...)
+					ctrl.columns.directionButtons = append(ctrl.columns.directionButtons, &DirectionButton{ID: idGen.currentValue(), name: string(index2 + 1), function: callElevator, floor: index2 + 1, state: inactive, direction: down})
 				}
 			}
+
 		}
-		if elevator.status == stopped && elevator.door.status == closed {
-			elevator.openDoor()
-		}
+
 	}
-	return
+	return ctrl
 }
 
-func (ctrl *ElevatorController) verifyDestinationList() {
-	for _, elevator := range ctrl.columns.elevators {
-		if (len(elevator.destinationList) > 0) && (len(elevator.inOutList) >0) {
-			if elevator.destinationList[0] != 0 && elevator.status == idle {
-				if elevator.currentFloor != elevator.destinationList[0] && elevator.door.status == closed {
-					elevator.startMove()
-				} else if (elevator.inOutList[0] && elevator.door.status == closed)
-				elevator.destinationList = append(elevator.destinationList[:0], elevator.destinationList[1:]...)
-				elevator.directionList = append(elevator.directionList[:0], elevator.directionList[1:]...)
-				elevator.inOutList = append(elevator.inOutList[:0], elevator.inOutList[1:]...)
-				elevator.openDoor()
-			}
+/*
+FLOOR INDEX:
+    BSMT 2 : 1
+    BSMT 1 : 2
+    Lobby : 3
+    2nd : 4
+    3rd : 5
+    4th : 6
+    5th : 7
+    6th : 8
+    7th : 9
+    8th : 10
+
+ELEVATOR INDEX:
+    1 : 1
+    2 : 2 */
+
+func main() {
+	var defaultFloor [2]int
+	var elevator [5]*Elevator
+	var firstInstructionDone = false
+	var timeout = getTimeInMilli()
+	var readyToStop = false
+
+	defaultFloor[0] = 10
+	defaultFloor[1] = 3
+	ctrl := createcontroller(2, 10, defaultFloor)
+
+	for {
+		if firstInstructionDone == false {
+			firstInstructionDone = true
+			elevator[0] = ctrl.requestElevator(10, down)
+			elevator[1] = ctrl.requestElevator(3, down)
+			//elevator[2] = ctrl.requestElevator(9, down)
+
+			ctrl.requestFloor(elevator[0], 3)
+			//ctrl.requestFloor(elevator[0], 5)
+			//ctrl.requestFloor(elevator[0], 2)
+			ctrl.requestFloor(elevator[1], 2)
+			//ctrl.requestFloor(elevator[1], 5)
+			//ctrl.requestFloor(elevator[1], 8)
+			//ctrl.requestFloor(elevator[2], 2)
+		}
+
+		ctrl.checkElevatorStatus()
+		ctrl.verifyDestinationList()
+		ctrl.checkMovingElevator()
+
+		if (getTimeInMilli() > (ctrl.columns.elevators[0].idleTime + appTimeout)) && (getTimeInMilli() > (ctrl.columns.elevators[1].idleTime + appTimeout)) {
+			readyToStop = true
+		}
+		if (getTimeInMilli() > (timeout + appTimeout)) || readyToStop == true {
+			//fmt.Println(string(appTimeout))
+			//fmt.Println("Break")
+			break
 		}
 	}
-	return
 }
 
-func (ctrl *ElevatorController) checkElevatorStatus()
-
 /*
-def checkElevatorStatus(self):
-	for elevator in self.columns.elevators:
-		if (timeInMilli() > elevator.openDoorTime + timeOutDoorOpen) and (elevator.door.status is not Closed):
-			elevator.door.alarm = True
-			elevator.forceCloseDoor()
-		if (timeInMilli() > elevator.idleTime + delayMaxIdleTime) and (not elevator.destinationList):
-			pass
-			#self.AddDestination(self.Columns.DefaultFloor,Elevator,GoingOut,"")
+*************************************************************************************
+Residential Scenario 1:
+A User located at Floor 1 calls for elevators Originating from Basement 1 and Floor 4, he gets one and gets to the Fifth floor with it'
 
-		if (timeInMilli() > (elevator.openDoorTime + delayDoorOpening)) and (elevator.door.status is Opening):
-			elevator.door.status = Opened
-			print("Elevator " + str(elevator.ID) + " door is opened") 
-		
-		if ((timeInMilli() > (elevator.openDoorTime + delayBeforeCloseDoor)) and (elevator.door.status is Opened)) or elevator.door.alarm is True:
-			elevator.closeDoor()
-		
-		if (timeInMilli() > elevator.closeDoorTime + delayDoorOpening) and elevator.door.status is Closing:
-			if (elevator.door.alarm is True) and (elevator.door.status is not Opening):
-				elevator.openDoor()
-				print("Elevator " + str(elevator.ID) + " door is opening again because of obstruction")
-			elevator.door.status = Closed
-			elevator.status = Idle
-			elevator.idleTime = timeInMilli()
-			print("Elevator " + str(elevator.ID) + " door is closed")
-		
-		if (timeInMilli() > elevator.forceCloseTime + delayForceCloseDoor) and (elevator.door.status is Closing) and elevator.door.alarm is False:
-			elevator.status = Idle
-			elevator.idleTime = timeInMilli()
-			elevator.alarm = False
-			elevator.door.alarm = False
-			elevator.door.status = Closed
-			print("Elevator " + str(elevator.ID) + " door is closed")
+Residential Scenario 2:
+A User located at Floor Basement 2 calls for elevators Originating from Floor 8 and Floor 1, he gets one to get to the 4th floor,
+Simultaneously, someone at Floor 1 requests an elevator to get to 3rd floor AS someone at 7th requests to go down to basement 1'
 
-		if (timeInMilli() > elevator.stopTime + delayElevatorStopping) and elevator.status is Stopping:
-			elevator.status = Stopped
-			elevator.direction = GoingNowhere
-			print("Elevator " + str(elevator.ID) + " is stopped at " + str(floorNames[elevator.currentFloor-1]) + " floor for people " + inOrOutNameList[elevator.inOutList[0]]) 
-			elevator.directionList.pop(0)
-			elevator.inOutList.pop(0)
-
-*/
-
-func (ctrl *ElevatorController) addDestinationElev(floor int, elevator *Elevator, isGoingInOrOut int, requestedDirection int) {
-	if len(elevator.destinationList) > 0 {
-		for _, destination := range elevator.destinationList {
-			if elevator.direction != 0 {
-				if elevator.direction == up {
-					if (floor < destination) && (floor > elevator.currentFloor) {
-						// insertPosition := elevator.destinationList = append(elevator.destinationList[:0], append([]T{x}, a[1:]...)...)
-						insertPosition := findIndexInList(elevator.destinationList, destination)
-						elevator.destinationList = insertInList(elevator.destinationList, insertPosition, floor)
-						elevator.inOutList = insertInList(elevator.inOutList, insertPosition, isGoingInOrOut)
-						elevator.directionList = insertInList(elevator.directionList, insertPosition, requestedDirection)
-						return
-					} else if (floor > destination) && (floor < elevator.currentFloor) {
-						insertPosition := findIndexInList(elevator.destinationList, destination)
-						elevator.destinationList = insertInList(elevator.destinationList, insertPosition, floor)
-						elevator.inOutList = insertInList(elevator.inOutList, insertPosition, isGoingInOrOut)
-						elevator.directionList = insertInList(elevator.directionList, insertPosition, requestedDirection)
-						return
-					}
-				} else if elevator.direction == down {
-					if (floor > destination) && (floor < elevator.currentFloor) {
-						insertPosition := findIndexInList(elevator.destinationList, destination)
-						elevator.destinationList = insertInList(elevator.destinationList, insertPosition, floor)
-						elevator.inOutList = insertInList(elevator.inOutList, insertPosition, isGoingInOrOut)
-						elevator.directionList = insertInList(elevator.directionList, insertPosition, requestedDirection)
-						return
-					} else if (floor < destination) && (floor > elevator.currentFloor) {
-						insertPosition := findIndexInList(elevator.destinationList, destination)
-						elevator.destinationList = insertInList(elevator.destinationList, insertPosition, floor)
-						elevator.inOutList = insertInList(elevator.inOutList, insertPosition, isGoingInOrOut)
-						elevator.directionList = insertInList(elevator.directionList, insertPosition, requestedDirection)
-						return
-					}
-				}
-			} else {
-				elevator.destinationList = insertInList(elevator.destinationList, insertPosition, floor)
-				elevator.inOutList = insertInList(elevator.inOutList, insertPosition, isGoingInOrOut)
-				elevator.directionList = insertInList(elevator.directionList, insertPosition, requestedDirection)
-				return
-			}
-		}
-	} else {
-		elevator.destinationList = insertInList(elevator.destinationList, insertPosition, floor)
-		elevator.inOutList = insertInList(elevator.inOutList, insertPosition, isGoingInOrOut)
-		elevator.directionList = insertInList(elevator.directionList, insertPosition, requestedDirection)
-		return
-	}
-	return
-}
-
-
-
-/*
-*/
-
-/*
-def findElevator(self, requestedDirection, requestedFloor):
-	idleElevatorList = []
-	for elevator in self.columns.elevators:
-		if elevator.door.alarm is False:
-			if requestedFloor is elevator.currentFloor:
-				if (elevator.status is Stopped and elevator.direction is requestedDirection) or (elevator.status is Idle and not elevator.destinationList):
-					return elevator
-			elif ((requestedFloor > elevator.currentFloor) and ((elevator.direction is Up) or (elevator.direction is GoingNowhere)) and (requestedDirection is Up) and ((elevator.status is Moving) or (elevator.status is Stopped))):
-				return elevator
-			elif ((requestedFloor > elevator.currentFloor) and ((elevator.direction is Down) or (elevator.direction is GoingNowhere)) and (requestedDirection is Down) and ((elevator.status is Moving) or (elevator.status is Stopped))):
-				return elevator
-			elif elevator.status is Idle and not elevator.destinationList:
-				idleElevatorList.append(elevator)
-	if idleElevatorList:
-		if (len(idleElevatorList) > 1):
-			gap = 99999
-			for elevator in idleElevatorList:
-				if gap > abs(elevator.currentFloor - requestedFloor):
-					gap = abs(elevator.currentFloor - requestedFloor)
-					elevatorToUse = elevator
-			return elevatorToUse
-		else:
-			return idleElevatorList[0]
-
-	elevator = self.nearestElevator(requestedFloor, requestedDirection)
-	if not elevator:
-		return elevator
-	else:
-		return self.shortestdestinationList()
+Residential Scenario 3:
+A User located at Floor 8 calls for elevators Originating from Floor 8 and Floor 1, he gets one to get to the 1st floor.
+Simultaneously Someone at Floor 1 requests an elevator to get to Basement 1'
 */
